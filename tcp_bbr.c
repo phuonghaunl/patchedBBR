@@ -182,7 +182,7 @@ static const u32 bbr_lt_bw_max_rtts = 48;
 //Ph added
 //static const u64 fixedrate = 62500000;
 //static const u64 fixedrate = 128000000;
-static const u64 fixedrate = 18750000;
+//static const u64 fixedrate = 18750000;
 //
 static void bbr_check_probe_rtt_done(struct sock *sk);
 
@@ -216,10 +216,24 @@ static u32 bbr_bw(const struct sock *sk)
  */
 static u64 bbr_rate_bytes_per_sec(struct sock *sk, u64 rate, int gain)
 {
+	//Ph added
+	struct bbr *bbr = inet_csk_ca(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+	long tcp_onpercent = tp->tcp_onpercent;
+	//
 	unsigned int mss = tcp_sk(sk)->mss_cache;
 
 	rate *= mss;
 	rate *= gain;
+	//Ph added
+	if(bbr->mode == BBR_PROBE_BW && gain >= BBR_UNIT){
+		if(tcp_onpercent < 1){
+			tcp_onpercent = 1;
+		}
+		rate *= 100;
+		do_div(rate, tcp_onpercent);
+	}
+	//
 	rate >>= BBR_SCALE;
 	rate *= USEC_PER_SEC / 100 * (100 - bbr_pacing_margin_percent);
 	return rate >> BW_SCALE;
@@ -233,7 +247,7 @@ static unsigned long bbr_bw_to_pacing_rate(struct sock *sk, u32 bw, int gain)
 	rate = bbr_rate_bytes_per_sec(sk, rate, gain);
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
 	//Ph added
-	rate = fixedrate;
+	//rate = fixedrate;
 	//
 	return rate;
 }
@@ -358,6 +372,12 @@ static u32 bbr_target_cwnd(struct sock *sk, u32 bw, int gain)
 	struct bbr *bbr = inet_csk_ca(sk);
 	u32 cwnd;
 	u64 w;
+	//Ph added
+	struct tcp_sock *tp = tcp_sk(sk);
+	u32 wnd_vm;
+	int vmgain;
+	long tcp_onpercent = tp->tcp_onpercent;
+	//
 
 	/* If we've never had a valid RTT sample, cap cwnd at the initial
 	 * default. This should only happen when the connection is not using TCP
@@ -370,8 +390,26 @@ static u32 bbr_target_cwnd(struct sock *sk, u32 bw, int gain)
 
 	w = (u64)bw * bbr->min_rtt_us;
 
+	//Ph added
+        if(bbr->mode == BBR_PROBE_BW){
+                if(tcp_onpercent < 20)
+                        vmgain = 2;
+                else if(tcp_onpercent < 50)
+                        vmgain = 1;
+		else
+			vmgain = 0;
+                wnd_vm = (u64)bw * vmgain;
+        }
+        else
+                wnd_vm = 0;
+	w = w + wnd_vm;
+	//
+
 	/* Apply a gain to the given value, then remove the BW_SCALE shift. */
-	cwnd = (((w * gain) >> BBR_SCALE) + BW_UNIT - 1) / BW_UNIT;
+	//Ph mod
+	cwnd = (((w * gain) >> BBR_SCALE) + BW_UNIT - 1) / BW_UNIT; //bbrorg
+	
+	//
 
 	/* Allow enough full-sized skbs in flight to utilize end systems. */
 	cwnd += 3 * bbr_tso_segs_goal(sk);
@@ -710,6 +748,11 @@ static void bbr_update_bw(struct sock *sk, const struct rate_sample *rs)
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
 	u64 bw;
+	//Ph
+	int mode;
+	u64 estbwvm;
+	long tcp_onpercent;
+	//
 
 	bbr->round_start = 0;
 	if (rs->delivered < 0 || rs->interval_us <= 0)
@@ -729,8 +772,51 @@ static void bbr_update_bw(struct sock *sk, const struct rate_sample *rs)
 	 * bandwidth sample. Delivered is in packets and interval_us in uS and
 	 * ratio will be <<1 for most connections. So delivered is first scaled.
 	 */
-	bw = (u64)rs->delivered * BW_UNIT;
-	do_div(bw, rs->interval_us);
+
+	//Ph mod
+	bw = (u64)rs->delivered * BW_UNIT; //bbrorg
+	
+	do_div(bw, rs->interval_us); //bbrorg
+
+	
+	tcp_onpercent = tp->tcp_onpercent;
+	/*
+	if (tp->tcp_firstfixedrate == 1){ // || ( (bbr->pacing_gain != bbr_high_gain) || (bbr->pacing_gain != bbr_drain_gain) )) {
+		estbwvm = bw * 100;
+		if(tcp_onpercent > 90){
+			estbwvm = bw * 100;
+			do_div(estbwvm, tcp_onpercent);
+			bw = estbwvm;
+		}
+	
+		else{
+			estbwvm = estbwvm * 1000;
+		}
+		//
+		bw = estbwvm;
+		
+		tp->tcp_firstfixedrate = 0;
+		mode = 1;
+	}
+	*/
+	if(bbr->mode == BBR_PROBE_BW){
+                if(tcp_onpercent > 90){
+			estbwvm = bw * 100;
+                        do_div(estbwvm, tcp_onpercent);
+			bw = estbwvm;
+			mode = 1;
+                }
+		//
+                //else{
+                //        estbwvm = bw;
+                //}
+	}
+
+	if( (ntohs( sk->sk_dport)==5201) || (ntohs( sk->sk_dport)==5001) ){
+			printk("bbr mode %d bbrlastuptime %llu onpercent %ld bw %llu estbwvm %llu tcpfirstfixedrate %u", mode, tp->tcp_bbrlastuptime, tcp_onpercent, bw, estbwvm, tp->tcp_firstfixedrate);
+	}
+	
+	//
 
 	/* If this sample is application-limited, it is likely to have a very
 	 * low delivered count that represents application behavior rather than
@@ -743,10 +829,16 @@ static void bbr_update_bw(struct sock *sk, const struct rate_sample *rs)
 	 * network rate no matter how long. We automatically leave this
 	 * phase when app writes faster than the network can deliver :)
 	 */
-	if (!rs->is_app_limited || bw >= bbr_max_bw(sk)) {
+	/*Ph mod
+	if ( ((tcp_onpercent > 90) && (bbr->mode == BBR_PROBE_BW) && (!rs->is_app_limited)) || (bw >= bbr_max_bw(sk)) ) {
+		minmax_running_max(&bbr->bw, bbr_bw_rtts, bbr->rtt_cnt, bw);
+	}*/
+//bbrorg
+	if (!rs->is_app_limited || bw >= bbr_max_bw(sk) || (mode == 1)) {
 		/* Incorporate new sample into our max bw filter. */
 		minmax_running_max(&bbr->bw, bbr_bw_rtts, bbr->rtt_cnt, bw);
 	}
+	//
 }
 
 /* Estimate when the pipe is full, using the change in delivery rate: BBR
@@ -902,12 +994,29 @@ static void bbr_update_gains(struct sock *sk)
 
 static void bbr_update_model(struct sock *sk, const struct rate_sample *rs)
 {
+        //Ph added
+        struct bbr *bbr = inet_csk_ca(sk);
+        struct tcp_sock *tp = tcp_sk(sk);
+        u32 prevpg;
+        prevpg = bbr->pacing_gain;
+        //
+
 	bbr_update_bw(sk, rs);
 	bbr_update_cycle_phase(sk, rs);
 	bbr_check_full_bw_reached(sk, rs);
 	bbr_check_drain(sk, rs);
 	bbr_update_min_rtt(sk, rs);
 	bbr_update_gains(sk);
+
+        //Ph added
+        if (prevpg < 100 && bbr->pacing_gain > 100) {
+                tp->tcp_firstfixedrate = 1;
+        }
+	if (tp->tcp_bbrupdatevm >0) {
+		tp->tcp_firstfixedrate = 1;
+	}
+        //
+
 }
 
 static void bbr_main(struct sock *sk, const struct rate_sample *rs)
@@ -918,34 +1027,47 @@ static void bbr_main(struct sock *sk, const struct rate_sample *rs)
 	//Ph added
 	//u64 delivery_rate; // delivery_rate
 	//u64 rate64; //rs->delivered
-	s64 bbrcurrts;
+	u64 bbrcurrts;
 	u32 bbrmaxsample_v;
 	u32 bbrmaxsample_t;
 	struct tcp_sock *tp = tcp_sk(sk);
 	//
+	tp->tcp_bbrtotalbyteacked = tp->bytes_acked;
+	tp->tcp_bbrrs = bbr->min_rtt_us;
+	bbr_update_model(sk, rs); //bbrorg
 
-	bbr_update_model(sk, rs);
-
-	bw = bbr_bw(sk);
-	bbr_set_pacing_rate(sk, bw, bbr->pacing_gain);
+	bw = bbr_bw(sk); //bbrorg
+	bbr_set_pacing_rate(sk, bw, bbr->pacing_gain); //bbrorg
+	
 	//Ph added
 	
-	bbrcurrts = ktime_to_us(ktime_get_boottime()) ; 
+	bbrcurrts = (u64) ktime_to_us(ktime_get_boottime()) ; 
 	tp->tcp_bbrltusebw = bbr->lt_use_bw;
 	tp->tcp_bbrltbw = bbr->lt_bw;
 	bbrmaxsample_v = bbr->bw.s[0].v;
 	bbrmaxsample_t = bbr->bw.s[0].t;
-	
+	tp->tcp_bbrlastuptime = bbrcurrts;
 	//rate64 = (u64)rs->delivered * BW_UNIT;
 	//do_div(rate64, rs->interval_us);
 	//delivery_rate = rate64;
 	//delivery_rate = bbr_rate_bytes_per_sec(sk, delivery_rate, 1); // change delivery rate in pkt/us to bytes/s
-	if( bbrcurrts - tp->tcp_bbrlastuptime > 500000){
+	/*
+	if( bbrcurrts - tp->tcp_bbrlastuptime > bbr->min_rtt_us ){
 		tp->tcp_bbrlastuptime = bbrcurrts;
+		tp->tcp_bbrrs = (long)bbr->min_rtt_us;
+		tp->tcp_bbrtotalbyteacked = tp->bytes_acked;
+		
+	        bbr_update_model(sk, rs); //bbrorg
+	        bw = bbr_bw(sk); //bbrorg
+	        bbr_set_pacing_rate(sk, bw, bbr->pacing_gain); //bbrorg
+	*/
+		/*
 		if( (ntohs( sk->sk_dport)==5201) || (ntohs( sk->sk_dport)==5001) ){
 			printk("bbr bbrlastuptime %llu ltusebw %u ltbw %u bwmaxsample_v %u bwmaxsample_t %u rtt_cnt %u tp->app_limited %u rate_app_limited %u", tp->tcp_bbrlastuptime, tp->tcp_bbrltusebw, tp->tcp_bbrltbw, bbrmaxsample_v, bbrmaxsample_t, bbr->rtt_cnt, tp->app_limited, (u32) tp->rate_app_limited );
 		}
-	}
+		*/
+	//}
+	
 	//
 
 	bbr_set_cwnd(sk, rs, rs->acked_sacked, bw, bbr->cwnd_gain);
@@ -992,6 +1114,9 @@ static void bbr_init(struct sock *sk)
 	tp->tcp_ontime = 0;
 	tp->tcp_offtime = 0;
 	tp->tcp_offcount = 0;
+	tp->tcp_bbrrs = (long) tcp_min_rtt(tp);
+	tp->tcp_bbrtotalbyteacked = 0;
+        tp->tcp_firstfixedrate = 0;
 	/*
 	if(ntohs( sk->sk_dport)==5001){
 		printk("lastuptime %llu bbrlastuptime %llu lasttimeout %llu on %llu of %llu aggon %llu aggoff %llu offcount %llu", tp->tcp_lastuptime, tp->tcp_bbrlastuptime, tp->tcp_lasttimeout, tp->tcp_ontime, tp->tcp_offtime, tp->tcp_aggontime, tp->tcp_aggofftime, tp->tcp_offcount);

@@ -1,2 +1,2 @@
 # CloudBBR
-Integration of VM scheduling aggregration degree model and BBR for cloud networks
+Integration of Inflation degree model which caused by VM scheduling and BBR's model for cloud networks
