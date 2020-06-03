@@ -992,22 +992,35 @@ enum hrtimer_restart tcp_pace_kick(struct hrtimer *timer)
 	}
 	tp->tcp_lasttimeout = currts;
 	/*
-	if(ntohs( sk->sk_dport)==5201){
-		printk("dport tcp_wsnxt %llu currts %lld lastuptime %llu on %llu off %llu onpercent %d.%02d nxtseq %u", tp->tcp_wsnxt, currts, tp->tcp_lastuptime, tp->tcp_ontime, tp->tcp_offtime, onpercent/100, onpercent % 100 , tp->snd_nxt);
-        }*/
-	if( currts - tp->tcp_lastuptime > 500000){ //every 1s
+	if(ntohs( sk->sk_dport)==5001 ){
+		tp->tcp_onpercent = (long) ( (int) (tp->tcp_ontime * 10000/(tp->tcp_ontime + tp->tcp_offtime))/100 );
+		printk("dport currts %lld lastuptime %llu on %llu off %llu onpercent %ld ", currts, tp->tcp_lastuptime, tp->tcp_ontime, tp->tcp_offtime, tp->tcp_onpercent );
+                tp->tcp_ontime = 0;
+                tp->tcp_offtime = 0;
+
+        }
+	*/
+	tp->tcp_bbrupdatevm = 1;
+	if( currts - tp->tcp_lastuptime > (10* tp->tcp_bbrrs)){ //every 1s
 		tp->tcp_lastuptime = currts;
-		
+			
 		onpercent = (int) (tp->tcp_aggontime * 10000/(tp->tcp_aggontime + tp->tcp_aggofftime));
+		tp->tcp_onpercent = (long) (onpercent/100);
+//		tp->tcp_bbrlastuptime = 1;
+
 		if( (ntohs( sk->sk_dport)==5201) || (ntohs( sk->sk_dport)==5001) ){
 		 printk("dport500ms aggon %llu aggoff %llu onpercent %d oncount %llu offcount %llu totbytesent %llu sndus %u ackus %u rsinterval %ld minrtt %u skblen %llu", tp->tcp_aggontime, tp->tcp_aggofftime, (int) (onpercent/100), tp->tcp_oncount, tp->tcp_offcount, tp->bytes_sent, tp->tcp_sndus, tp->tcp_ackus, tp->tcp_rsinterval, tcp_min_rtt(tp), (u64) tp->tcp_skbleninfo );
         	}
+
 		tp->tcp_ontime = 0;
 		tp->tcp_offtime = 0;
 		tp->tcp_offcount = 0;
 		tp->tcp_oncount = 0;
 		tp->tcp_aggontime =0;
 		tp->tcp_aggofftime =0;
+		tp->tcp_bbrupdatevm = 0;
+//		tp->tcp_bbrlastuptime = 0;
+
 	}
 	//
 

@@ -95,6 +95,10 @@ void tcp_rate_skb_delivered(struct sock *sk, struct sk_buff *skb,
 		/* Find the duration of the "send phase" of this window: */
 		rs->interval_us = tcp_stamp_us_delta(tp->first_tx_mstamp,
 						     scb->tx.first_tx_mstamp);
+		//Ph added
+		tp->tcp_bbrfirst_tx_mstamp = tp->first_tx_mstamp;
+		tp->tcp_bbrscbtxfirst_tx_mstamp = scb->tx.first_tx_mstamp;
+		//
 
 	}
 	/* Mark off the skb delivered once it's sacked to avoid being
@@ -155,7 +159,13 @@ void tcp_rate_gen(struct sock *sk, u32 delivered, u32 lost,
 	tp->tcp_sndus = snd_us;
 	tp->tcp_ackus = ack_us;
 	tp->tcp_rsinterval = rs->interval_us;
-	//
+	tp->tcp_bbrtcp_mstamp = tp->tcp_mstamp;
+	tp->tcp_bbrrsprior_mstamp = rs->prior_mstamp;
+	/*Ph added
+	if( (ntohs( sk->sk_dport)==5201) || (ntohs( sk->sk_dport)==5001) ){
+		printk("bbrinfo sndtine1 %llu sndtime2 %llu acktime1 %llu acktime2 %llu sndus %u ackus %u It %ld skblen %llu  ", tp->tcp_bbrfirst_tx_mstamp, tp->tcp_bbrscbtxfirst_tx_mstamp, tp->tcp_bbrtcp_mstamp, tp->tcp_bbrrsprior_mstamp, snd_us, ack_us, rs->interval_us, (u64) tp->tcp_skbleninfo );
+	}
+	*/
 
 	/* Normally we expect interval_us >= min-rtt.
 	 * Note that rate may still be over-estimated when a spuriously

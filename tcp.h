@@ -262,10 +262,21 @@ struct tcp_sock {
         u32     tcp_sndus;
         u32     tcp_ackus;
         long    tcp_rsinterval;
+	u64	tcp_bbrfirst_tx_mstamp;
+	u64	tcp_bbrscbtxfirst_tx_mstamp;
+	u64	tcp_bbrtcp_mstamp;
+	u64	tcp_bbrrsprior_mstamp;
+	//
 	u32	tcp_bbrltusebw;
 	u32	tcp_bbrltbw;
 	u64	tcp_skbleninfo;
-
+	u32	tcp_vm_level;
+	long	tcp_onpercent;
+	long 	tcp_bbrrs; //interval to update delivery rate
+	s32	tcp_rsdelivered;
+	u64	tcp_bbrtotalbyteacked;
+	u32     tcp_firstfixedrate;
+	int	tcp_bbrupdatevm;
         //
 
 /* RTT measurement */
