@@ -1,2 +1,2 @@
-# CloudBBR
-Integration of Inflation degree model which caused by VM scheduling and BBR's model for cloud networks
+# patch-for-BBR
+Integration of Virtual machine scheduling conditions and BBR's model for cloud networks
