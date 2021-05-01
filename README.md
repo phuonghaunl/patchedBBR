@@ -16,3 +16,5 @@ To use patchedBBR, follow these steps:
   cp tcp_bbr.c tcp_output.c net-next/net/ipv4/ 
   
   sudo make && sudo make modules_install && sudo make //compile and install the kernel 
+  
+  sudo reboot //reboot once installation is done
