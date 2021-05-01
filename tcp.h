@@ -250,32 +250,14 @@ struct tcp_sock {
 
         //Ph added
         u64     tcp_lastuptime; /* system last up time updated in tcp_output.c */
-        u64     tcp_bbrlastuptime; /* system last up time updated in tcp_bbr.c */
-        u64     tcp_wsnxt; /* tcp_wstamp_ns before updating in tcp_pacing_check()*/
-        u64     tcp_ontime;
-        u64     tcp_offtime;
         u64     tcp_aggontime;
         u64     tcp_aggofftime;
         u64     tcp_lasttimeout;
         u64     tcp_offcount;
 	u64	tcp_oncount;
-        u32     tcp_sndus;
-        u32     tcp_ackus;
-        long    tcp_rsinterval;
-	u64	tcp_bbrfirst_tx_mstamp;
-	u64	tcp_bbrscbtxfirst_tx_mstamp;
-	u64	tcp_bbrtcp_mstamp;
-	u64	tcp_bbrrsprior_mstamp;
-	//
-	u32	tcp_bbrltusebw;
-	u32	tcp_bbrltbw;
-	u64	tcp_skbleninfo;
 	u32	tcp_vm_level;
 	long	tcp_onpercent;
-	long 	tcp_bbrrs; //interval to update delivery rate
-	s32	tcp_rsdelivered;
-	u64	tcp_bbrtotalbyteacked;
-	u32     tcp_firstfixedrate;
+	u32     tcp_bbrprevpgain;
 	int	tcp_bbrupdatevm;
         //
 
