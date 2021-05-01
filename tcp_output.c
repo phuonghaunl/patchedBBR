@@ -975,52 +975,39 @@ enum hrtimer_restart tcp_pace_kick(struct hrtimer *timer)
 
 	//Ph added
 	s64 currts;
-	u64 on, off, diff;
+	u64 diff;
 	int onpercent;
 	onpercent = 0;
-	currts = ktime_to_us(ktime_get_boottime()) ; //(u64) (tsnow.tv_sec *1000000 + tsnow.tv_nsec /1000);
-	diff = (u64) currts - tp->tcp_lasttimeout; // Lisong: (tp->tcp_wsnxt/1000);
-	if( diff < 1500){ //Ph:  2000) { //Lisong:  // 1000 ){
-		tp->tcp_ontime += diff;
-		tp->tcp_aggontime += diff; //Lisong: currts - tp->tcp_lasttimeout;
+	currts = ktime_to_us(ktime_get_boottime()) ;
+	diff = (u64) currts - tp->tcp_lasttimeout; //Lisong: compute gap between current and lasttimeout
+	if( diff < 1500){ //Lisong: On if diff < 1500; Off otherwise
+		tp->tcp_aggontime += diff;
 		tp->tcp_oncount ++;
 	}
 	else{
-		tp->tcp_offtime += diff;
-		tp->tcp_aggofftime += diff; // Lisong: currts - tp->tcp_lasttimeout;
+		tp->tcp_aggofftime += diff;
 		tp->tcp_offcount ++;
 	}
 	tp->tcp_lasttimeout = currts;
-	/*
-	if(ntohs( sk->sk_dport)==5001 ){
-		tp->tcp_onpercent = (long) ( (int) (tp->tcp_ontime * 10000/(tp->tcp_ontime + tp->tcp_offtime))/100 );
-		printk("dport currts %lld lastuptime %llu on %llu off %llu onpercent %ld ", currts, tp->tcp_lastuptime, tp->tcp_ontime, tp->tcp_offtime, tp->tcp_onpercent );
-                tp->tcp_ontime = 0;
-                tp->tcp_offtime = 0;
-
-        }
-	*/
-	tp->tcp_bbrupdatevm = 1;
-	if( currts - tp->tcp_lastuptime > (10* tp->tcp_bbrrs)){ //every 1s
+	tp->tcp_bbrupdatevm = 0;	
+	if( currts - tp->tcp_lastuptime > 500000){ //considering VM sleep time, check for VM scheduling every 500ms
 		tp->tcp_lastuptime = currts;
 			
 		onpercent = (int) (tp->tcp_aggontime * 10000/(tp->tcp_aggontime + tp->tcp_aggofftime));
 		tp->tcp_onpercent = (long) (onpercent/100);
-//		tp->tcp_bbrlastuptime = 1;
+		if (tp->tcp_onpercent < 1){ //Ph: ensure onpercent>0
+			tp->tcp_onpercent = 1;
+		}
 
 		if( (ntohs( sk->sk_dport)==5201) || (ntohs( sk->sk_dport)==5001) ){
-		 printk("dport500ms aggon %llu aggoff %llu onpercent %d oncount %llu offcount %llu totbytesent %llu sndus %u ackus %u rsinterval %ld minrtt %u skblen %llu", tp->tcp_aggontime, tp->tcp_aggofftime, (int) (onpercent/100), tp->tcp_oncount, tp->tcp_offcount, tp->bytes_sent, tp->tcp_sndus, tp->tcp_ackus, tp->tcp_rsinterval, tcp_min_rtt(tp), (u64) tp->tcp_skbleninfo );
+		 printk("report500ms aggon %llu aggoff %llu onpercent %d oncount %llu offcount %llu", tp->tcp_aggontime, tp->tcp_aggofftime, (int) (onpercent/100), tp->tcp_oncount, tp->tcp_offcount);
         	}
 
-		tp->tcp_ontime = 0;
-		tp->tcp_offtime = 0;
 		tp->tcp_offcount = 0;
 		tp->tcp_oncount = 0;
 		tp->tcp_aggontime =0;
 		tp->tcp_aggofftime =0;
-		tp->tcp_bbrupdatevm = 0;
-//		tp->tcp_bbrlastuptime = 0;
-
+		tp->tcp_bbrupdatevm = 1;
 	}
 	//
 
@@ -1056,13 +1043,6 @@ static void tcp_update_skb_after_send(struct sock *sk, struct sk_buff *skb,
 			tp->tcp_wstamp_ns += len_ns;
 		}
 	}
-	//Ph added
-	tp->tcp_skbleninfo = (u64) skb->len;
-	/*
-	if(((u16) ntohs( sk->sk_dport))==5201){
-		printk("dportskb %llu", (u64) skb->len);
-	}
-	*/
 	list_move_tail(&skb->tcp_tsorted_anchor, &tp->tsorted_sent_queue);
 }
 
@@ -2259,13 +2239,7 @@ static int tcp_mtu_probe(struct sock *sk)
 static bool tcp_pacing_check(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	u64 wsts;	
 	if (!tcp_needs_internal_pacing(sk)){
-		/*Ph added
-		if(((u16) ntohs( sk->sk_dport))==5201){
-			printk("tcppaceitself = true");
-		}
-		*/
 		return false;
 	}
 	
@@ -2276,13 +2250,6 @@ static bool tcp_pacing_check(struct sock *sk)
 		hrtimer_start(&tp->pacing_timer,
 			      ns_to_ktime(tp->tcp_wstamp_ns),
 			      HRTIMER_MODE_ABS_PINNED_SOFT);
-		//Ph added
-		tp->tcp_wsnxt = tp->tcp_wstamp_ns;
-		/*if(ntohs( sk->sk_dport)==5201){
-			//wsts = tp->tcp_wstamp_ns;
-                	printk("dportstarttimer wsnxt %llu ", tp->tcp_wsnxt);
-       		 }
-        	*/
 		sock_hold(sk);
 	}
 	return true;
